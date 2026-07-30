@@ -1,0 +1,57 @@
+name: Vibe Code Review Standard
+
+on:
+  workflow_call:
+    inputs:
+      model:
+        description: GitHub Models model identifier
+        required: false
+        type: string
+        default: openai/gpt-4.1
+      review_concurrency:
+        description: Maximum parallel review agents
+        required: false
+        type: string
+        default: "3"
+      route_severity_below:
+        description: Route findings at or below this severity to the summary
+        required: false
+        type: string
+        default: low
+      route_categories:
+        description: Comma-separated categories routed to the summary
+        required: false
+        type: string
+        default: style,documentation
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  models: read
+
+jobs:
+  review:
+    name: OpenCodeReview
+    if: github.event_name == 'pull_request' && github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: vibe-code-review-${{ github.repository }}-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    steps:
+      - name: Review pull request
+        uses: executiveusa/open-code-review@main
+        with:
+          llm_url: https://models.github.ai/inference/chat/completions
+          llm_auth_token: ${{ secrets.GITHUB_TOKEN }}
+          llm_model: ${{ inputs.model }}
+          llm_use_anthropic: "false"
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          language: English
+          review_concurrency: ${{ inputs.review_concurrency }}
+          sticky_summary: "true"
+          incremental: "true"
+          upload_artifacts: "true"
+          route_severity_below: ${{ inputs.route_severity_below }}
+          route_categories: ${{ inputs.route_categories }}
