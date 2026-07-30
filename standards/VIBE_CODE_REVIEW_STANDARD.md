@@ -93,6 +93,12 @@ The installer:
 - creates or updates the managed `AGENTS.md` block;
 - is safe to rerun.
 
+Verify the installer itself with:
+
+```bash
+npm run test:vibe-review-installer
+```
+
 Inspect and commit the resulting changes on a branch. Do not install directly into production branches without review.
 
 ## Exceptions
