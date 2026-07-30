@@ -44,7 +44,14 @@ Install the standard into a checked-out project:
 node scripts/install-vibe-review.mjs /path/to/project
 ```
 
-The installer adds the agent skill, managed `AGENTS.md` completion rule, OpenCodeReview policy, and central caller workflow. Review the generated diff on a branch before merging it.
+The installer adds:
+
+- automatic agent skill discovery for Codex, Claude, Cursor, Copilot, and open skill-compatible agents;
+- a managed `AGENTS.md` instruction that requires the skill before any agent says work is done or ready to ship;
+- default `.opencodereview/rule.json` policy without overwriting project-specific rules;
+- a reusable GitHub Actions review on every non-draft pull request.
+
+Review the generated diff on a branch before merging it.
 
 See [`standards/VIBE_CODE_REVIEW_STANDARD.md`](standards/VIBE_CODE_REVIEW_STANDARD.md) for enforcement, evidence, exceptions, and rollout stages.
 
