@@ -1,0 +1,80 @@
+name: Vibe Code Review Standard
+
+on:
+  workflow_call:
+    inputs:
+      model:
+        description: GitHub Models model ID used by OpenCodeReview.
+        required: false
+        type: string
+        default: openai/gpt-4.1
+      review_concurrency:
+        description: Maximum concurrent review bundles.
+        required: false
+        type: string
+        default: "3"
+      route_severity_below:
+        description: Route findings at or below this severity to the summary.
+        required: false
+        type: string
+        default: low
+      route_categories:
+        description: Comma-separated categories routed to the summary.
+        required: false
+        type: string
+        default: style,documentation
+      upload_artifacts:
+        description: Upload raw review output for independent verification.
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  models: read
+
+jobs:
+  open-code-review:
+    name: OpenCodeReview
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: vibe-code-review-${{ github.repository }}-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+
+    steps:
+      - name: Review pull request
+        id: review
+        uses: executiveusa/open-code-review@main
+        with:
+          llm_url: https://models.github.ai/inference/chat/completions
+          llm_auth_token: ${{ github.token }}
+          llm_model: ${{ inputs.model }}
+          llm_use_anthropic: "false"
+          github_token: ${{ github.token }}
+          language: English
+          review_concurrency: ${{ inputs.review_concurrency }}
+          sticky_summary: "true"
+          incremental: "true"
+          route_severity_below: ${{ inputs.route_severity_below }}
+          route_categories: ${{ inputs.route_categories }}
+          upload_artifacts: ${{ inputs.upload_artifacts && 'true' || 'false' }}
+
+      - name: Publish verification summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## Vibe Code Review evidence"
+            echo
+            echo "- Total findings: ${{ steps.review.outputs.comments_total }}"
+            echo "- Inline findings: ${{ steps.review.outputs.comments_inline }}"
+            echo "- Routed to summary: ${{ steps.review.outputs.comments_routed }}"
+            echo "- Skipped as duplicates: ${{ steps.review.outputs.comments_skipped }}"
+            echo "- Failed to publish: ${{ steps.review.outputs.comments_failed }}"
+            echo
+            echo "This review is advisory during the calibration phase. A human or independent agent must resolve or explicitly accept material findings before release."
+          } >> "$GITHUB_STEP_SUMMARY"
