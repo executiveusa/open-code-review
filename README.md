@@ -34,6 +34,27 @@
 
 ---
 
+## Vibe Engineering completion gate
+
+This fork contains the `vibe-project-review` skill and a reusable GitHub Actions review standard for finished and production-classified projects.
+
+Install the standard into a checked-out project:
+
+```bash
+node scripts/install-vibe-review.mjs /path/to/project
+```
+
+The installer adds:
+
+- automatic agent skill discovery for Codex, Claude, Cursor, Copilot, and open skill-compatible agents;
+- a managed `AGENTS.md` instruction that requires the skill before any agent says work is done or ready to ship;
+- default `.opencodereview/rule.json` policy without overwriting project-specific rules;
+- a reusable GitHub Actions review on every non-draft pull request.
+
+Review the generated diff on a branch before merging it.
+
+See [`standards/VIBE_CODE_REVIEW_STANDARD.md`](standards/VIBE_CODE_REVIEW_STANDARD.md) for enforcement, evidence, exceptions, and rollout stages.
+
 ## What is Open Code Review?
 
 Open Code Review is an AI-powered code review CLI tool. It originated as Alibaba Group's internal official AI code review assistant — over the past two years, it has served tens of thousands of developers and identified millions of code defects. After thorough validation at massive scale, we incubated it into an open source project for the community. Simply configure a model endpoint to get started.
@@ -168,7 +189,7 @@ Full documentation lives at **[open-codereview.ai/docs](https://open-codereview.
 - Coding Agent Integrations — choose the platform you use
   - [Claude Code](plugins/open-code-review/README.md#claude-code) — install a plugin with review slash commands
   - [Codex](plugins/open-code-review/README.md#codex) — install a plugin with callable review skills
-  - [Cursor](plugins/open-code-review/README.md#cursor) — install a plugin with portable review skills
+  - [Cursor](plugins/open-code-review/README.md#cursor) — install portable review skills
   - [OpenCode](plugins/open-code-review/opencode/README.md) — install native review tools and slash commands
   - [Skill-compatible agents](https://open-codereview.ai/docs/agent-skill) — install the portable agent skill
 - Review Execution Modes — after integration, choose which LLM performs the review
@@ -181,7 +202,7 @@ Full documentation lives at **[open-codereview.ai/docs](https://open-codereview.
 
 ## Contributing
 
-This project exists thanks to all the people who contribute. See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, coding guidelines, and how to submit pull requests.
+This project exists thanks to all who contribute. See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, coding guidelines, and how to submit pull requests.
 
 <a href="https://github.com/alibaba/open-code-review/graphs/contributors">
   <img src="https://contrib.rocks/image?repo=alibaba/open-code-review" />
