@@ -3,11 +3,21 @@ name: Vibe Code Review Standard
 on:
   workflow_call:
     inputs:
-      model:
-        description: GitHub Models model identifier
+      llm_url:
+        description: OpenAI-compatible or Anthropic-compatible inference endpoint
         required: false
         type: string
-        default: openai/gpt-4.1
+        default: https://openrouter.ai/api/v1/chat/completions
+      model:
+        description: Model identifier accepted by the configured provider
+        required: false
+        type: string
+        default: openai/gpt-5.3-codex
+      use_anthropic:
+        description: Set true only for Anthropic-native request format
+        required: false
+        type: string
+        default: "false"
       review_concurrency:
         description: Maximum parallel review agents
         required: false
@@ -23,12 +33,15 @@ on:
         required: false
         type: string
         default: style,documentation
+    secrets:
+      llm_token:
+        description: Provider API token used only for OpenCodeReview inference
+        required: true
 
 permissions:
   contents: read
   pull-requests: write
   issues: write
-  models: read
 
 jobs:
   review:
@@ -43,10 +56,10 @@ jobs:
       - name: Review pull request
         uses: executiveusa/open-code-review@main
         with:
-          llm_url: https://models.github.ai/inference/chat/completions
-          llm_auth_token: ${{ secrets.GITHUB_TOKEN }}
+          llm_url: ${{ inputs.llm_url }}
+          llm_auth_token: ${{ secrets.llm_token }}
           llm_model: ${{ inputs.model }}
-          llm_use_anthropic: "false"
+          llm_use_anthropic: ${{ inputs.use_anthropic }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
           language: English
           review_concurrency: ${{ inputs.review_concurrency }}
