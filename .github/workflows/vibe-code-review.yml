@@ -62,7 +62,7 @@ jobs:
       cancel-in-progress: true
     steps:
       - name: Review pull request
-        uses: executiveusa/open-code-review@22af4cb62c97959276055f3b3d977d7aa993adef  # pinned: action content identical to current main, frozen going forward
+        uses: executiveusa/open-code-review@079c7c28b2e10e47ff1ddd8df8f5138ea2efff79  # pinned: integrity-locked action (this commit only changes the ref)
         with:
           ocr_version: ${{ inputs.ocr_version }}
           llm_url: ${{ inputs.llm_url }}
