@@ -38,6 +38,11 @@ on:
         required: false
         type: string
         default: "1.11.8"
+      rule:
+        description: Leave EMPTY to use the centrally pinned policy inside the pinned action (trusted). A candidate-relative path is untrusted.
+        required: false
+        type: string
+        default: ""
     secrets:
       llm_token:
         description: Provider API token used only for OpenCodeReview inference
@@ -65,6 +70,7 @@ jobs:
         uses: executiveusa/open-code-review@079c7c28b2e10e47ff1ddd8df8f5138ea2efff79  # pinned: integrity-locked action (this commit only changes the ref)
         with:
           ocr_version: ${{ inputs.ocr_version }}
+          rule: ${{ inputs.rule }}
           llm_url: ${{ inputs.llm_url }}
           llm_auth_token: ${{ secrets.llm_token }}
           llm_model: ${{ inputs.model }}

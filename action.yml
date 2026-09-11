@@ -60,7 +60,12 @@ inputs:
     description: Value passed to `ocr review --background`.
     required: false
   rule:
-    description: Path to a custom rules JSON file passed to `ocr review --rule`.
+    description: >-
+      Path to a custom rules JSON file passed to `ocr review --rule`. EMPTY
+      (default) uses the centrally pinned policy shipped inside this pinned
+      action at policy/rule.json - the candidate under review can never
+      control its own judge. Setting a candidate-relative path is possible
+      but explicitly untrusted and not recommended for gates.
     required: false
   upload_artifacts:
     description: >-
@@ -201,7 +206,7 @@ runs:
 
     - name: Setup Node.js
       if: steps.check_deps.outputs.node_installed != 'true'
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4, SHA-pinned
       with:
         node-version: ${{ inputs.node_version }}
 
@@ -221,7 +226,7 @@ runs:
         echo "PR head sha: $HEAD_SHA"
 
     - name: Checkout base
-      uses: actions/checkout@v4
+      uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4, SHA-pinned
       with:
         # Checkout the trusted base, not the PR head. OCR reviews the
         # base-to-head diff from git objects; the head commit's blobs are
@@ -273,21 +278,27 @@ runs:
         GOT_SHA512=$(openssl dgst -sha512 -binary "$TGZ" | openssl base64 -A)
         [ "$GOT_SHA512" = "$NPM_SHA512" ] || { echo "::error::npm tarball sha512 mismatch for ${OCR_VERSION}: got $GOT_SHA512"; exit 1; }
         echo "npm tarball sha512 verified (${OCR_VERSION})"
-        npm install -g "./$(basename "$TGZ")"
-        BIN="$(npm root -g)/@alibaba-group/open-code-review/bin/opencodereview"
-        [ -f "$BIN" ] || { echo "::error::native binary missing after install"; exit 1; }
+        # NO package lifecycle scripts run: --ignore-scripts. The launcher
+        # package's postinstall would download the native binary itself; we
+        # do that independently below with our own recorded-hash verification.
+        npm install -g --ignore-scripts "./$(basename "$TGZ")"
+        BIN_DIR="$(npm root -g)/@alibaba-group/open-code-review/bin"
+        BIN="$BIN_DIR/opencodereview"
         case "$(uname -m)" in
-          x86_64)         WANT_BIN="$BIN_SHA256_AMD64";;
-          arm64|aarch64)  WANT_BIN="$BIN_SHA256_ARM64";;
+          x86_64)         BINARCH=amd64; WANT_BIN="$BIN_SHA256_AMD64";;
+          arm64|aarch64)  BINARCH=arm64; WANT_BIN="$BIN_SHA256_ARM64";;
           *) echo "::error::no recorded binary sha256 for arch $(uname -m)"; exit 1;;
         esac
+        curl -fsSL -o "$BIN" "https://github.com/alibaba/open-code-review/releases/download/v${OCR_VERSION}/opencodereview-linux-${BINARCH}"
         GOT_BIN=$(sha256sum "$BIN" | awk '{print $1}')
-        [ "$GOT_BIN" = "$WANT_BIN" ] || { echo "::error::native binary sha256 mismatch: got $GOT_BIN want $WANT_BIN"; exit 1; }
-        echo "native binary sha256 verified ($(uname -m))"
-        ocr version || true
+        [ "$GOT_BIN" = "$WANT_BIN" ] || { echo "::error::native binary sha256 mismatch: got $GOT_BIN want $WANT_BIN"; rm -f "$BIN"; exit 1; }
+        chmod 0755 "$BIN"
+        echo "native binary sha256 verified (${BINARCH}), placed independently of package scripts"
+        OCR_NO_UPDATE=1 ocr version || true
 
     - name: Configure OCR
       env:
+        OCR_NO_UPDATE: "1"    # the launcher's updater can install npm @latest; it is disabled
         OCR_EXTRA_BODY: ${{ inputs.llm_extra_body }}
         OCR_LANGUAGE: ${{ inputs.language }}
       shell: bash
@@ -297,6 +308,7 @@ runs:
 
     - name: Run OpenCodeReview
       env:
+        OCR_NO_UPDATE: "1"    # updater disabled: no mutable code may execute
         OCR_LLM_URL: ${{ inputs.llm_url }}
         OCR_LLM_TOKEN: ${{ inputs.llm_auth_token }}
         OCR_LLM_MODEL: ${{ inputs.llm_model }}
@@ -312,7 +324,13 @@ runs:
         ARGS=(--from "${MERGE_BASE}" --to "${HEAD_SHA}" --format json)
         [ -n "$OCR_REVIEW_CONCURRENCY" ] && ARGS+=(--concurrency "$OCR_REVIEW_CONCURRENCY")
         [ -n "$OCR_BACKGROUND" ] && ARGS+=(--background "$OCR_BACKGROUND")
-        [ -n "$OCR_RULE" ] && ARGS+=(--rule "$OCR_RULE")
+        if [ -z "$OCR_RULE" ]; then
+          OCR_RULE="$GITHUB_ACTION_PATH/policy/rule.json"
+          echo "Policy source: centrally pinned ($OCR_RULE, ships inside the pinned action)"
+        else
+          echo "Policy source: caller-provided ($OCR_RULE) - explicitly untrusted, not for gates"
+        fi
+        ARGS+=(--rule "$OCR_RULE")
         set +e
         ocr review "${ARGS[@]}" > /tmp/ocr-result.json 2>/tmp/ocr-stderr.log
         OCR_EXIT_CODE=$?
@@ -325,7 +343,7 @@ runs:
 
     - name: Upload review artifacts
       if: ${{ always() && inputs.upload_artifacts == 'true' }}
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4, SHA-pinned
       with:
         name: ocr-review-result-${{ github.run_id }}-${{ github.run_attempt }}
         path: |
@@ -343,7 +361,7 @@ runs:
     - name: Post review comments
       if: env.OCR_EXIT_CODE == '0'
       id: post
-      uses: actions/github-script@v7
+      uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b  # v7, SHA-pinned
       env:
         OCR_INCREMENTAL_OVERLAP_THRESHOLD: ${{ inputs.incremental_overlap_threshold }}
         OCR_REVIEW_COMMENT_BATCH_SIZE: ${{ inputs.review_comment_batch_size }}
