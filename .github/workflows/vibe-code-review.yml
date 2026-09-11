@@ -54,7 +54,7 @@ jobs:
       cancel-in-progress: true
     steps:
       - name: Review pull request
-        uses: executiveusa/open-code-review@main
+        uses: executiveusa/open-code-review@22af4cb62c97959276055f3b3d977d7aa993adef  # pinned: action content identical to current main, frozen going forward
         with:
           llm_url: ${{ inputs.llm_url }}
           llm_auth_token: ${{ secrets.llm_token }}
