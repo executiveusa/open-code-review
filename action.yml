@@ -47,9 +47,12 @@ inputs:
     required: false
     default: ${{ github.token }}
   ocr_version:
-    description: npm version spec for @alibaba-group/open-code-review.
+    description: >-
+      EXACT npm version for @alibaba-group/open-code-review. Only versions
+      with integrity constants recorded in the install step below are
+      accepted; anything else fails closed. Never a floating spec.
     required: false
-    default: latest
+    default: "1.11.8"
   review_concurrency:
     description: Value passed to `ocr review --concurrency`.
     required: false
@@ -244,13 +247,43 @@ runs:
         echo "MERGE_BASE=$MERGE_BASE" >> "$GITHUB_ENV"
         echo "Reviewing ${HEAD_SHA} from merge-base ${MERGE_BASE} (base origin/${BASE_REF})"
 
-    - name: Install OpenCodeReview
+    - name: Install OpenCodeReview (version-pinned, integrity-verified)
       shell: bash
       env:
         OCR_VERSION: ${{ inputs.ocr_version }}
       run: |
-        npm install -g "@alibaba-group/open-code-review@${OCR_VERSION}"
-        echo "OpenCodeReview installed:"
+        set -euo pipefail
+        # Integrity lock: every executed byte is verified against constants
+        # recorded in THIS pinned action (inspected before pinning), never
+        # against same-origin metadata alone. Unknown versions fail closed.
+        case "${OCR_VERSION}" in
+          1.11.8)
+            NPM_SHA512="DhFkYIhCx+omtbMKY4bTpJLaZtfn6kHZlxmZyCYMOxDcimp3R3BOWwnXNy/m8kzqwviX74sVprG7sS1j7f8swQ=="
+            BIN_SHA256_AMD64="d6654cc065c1e844f32e15290bcdb2fe1b7c5d5d6f46e6484987985bc5300f77"
+            BIN_SHA256_ARM64="ccc206fcb2be26a177ee665d4b768188232108b5bed978a58c5ac988ae00143e"
+            ;;
+          *)
+            echo "::error::OCR_VERSION ${OCR_VERSION} has no recorded integrity constants in this pinned action; refusing to install unverified code"
+            exit 1
+            ;;
+        esac
+        WORK=$(mktemp -d) && cd "$WORK"
+        npm pack "@alibaba-group/open-code-review@${OCR_VERSION}" --silent
+        TGZ=$(ls ./*.tgz | head -1)
+        GOT_SHA512=$(openssl dgst -sha512 -binary "$TGZ" | openssl base64 -A)
+        [ "$GOT_SHA512" = "$NPM_SHA512" ] || { echo "::error::npm tarball sha512 mismatch for ${OCR_VERSION}: got $GOT_SHA512"; exit 1; }
+        echo "npm tarball sha512 verified (${OCR_VERSION})"
+        npm install -g "./$(basename "$TGZ")"
+        BIN="$(npm root -g)/@alibaba-group/open-code-review/bin/opencodereview"
+        [ -f "$BIN" ] || { echo "::error::native binary missing after install"; exit 1; }
+        case "$(uname -m)" in
+          x86_64)         WANT_BIN="$BIN_SHA256_AMD64";;
+          arm64|aarch64)  WANT_BIN="$BIN_SHA256_ARM64";;
+          *) echo "::error::no recorded binary sha256 for arch $(uname -m)"; exit 1;;
+        esac
+        GOT_BIN=$(sha256sum "$BIN" | awk '{print $1}')
+        [ "$GOT_BIN" = "$WANT_BIN" ] || { echo "::error::native binary sha256 mismatch: got $GOT_BIN want $WANT_BIN"; exit 1; }
+        echo "native binary sha256 verified ($(uname -m))"
         ocr version || true
 
     - name: Configure OCR

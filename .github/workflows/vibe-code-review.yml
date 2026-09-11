@@ -33,11 +33,19 @@ on:
         required: false
         type: string
         default: style,documentation
+      ocr_version:
+        description: EXACT @alibaba-group/open-code-review version; only integrity-locked versions install
+        required: false
+        type: string
+        default: "1.11.8"
     secrets:
       llm_token:
         description: Provider API token used only for OpenCodeReview inference
         required: true
 
+# Least permissions for the documented behavior: contents:read to diff the PR,
+# pull-requests:write for inline review comments, issues:write for the sticky
+# summary comment (PR conversation comments use the issues API). No contents:write.
 permissions:
   contents: read
   pull-requests: write
@@ -56,6 +64,7 @@ jobs:
       - name: Review pull request
         uses: executiveusa/open-code-review@22af4cb62c97959276055f3b3d977d7aa993adef  # pinned: action content identical to current main, frozen going forward
         with:
+          ocr_version: ${{ inputs.ocr_version }}
           llm_url: ${{ inputs.llm_url }}
           llm_auth_token: ${{ secrets.llm_token }}
           llm_model: ${{ inputs.model }}
