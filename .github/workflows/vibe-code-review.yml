@@ -61,7 +61,7 @@ jobs:
     name: OpenCodeReview
     if: github.event_name == 'pull_request' && github.event.pull_request.draft == false
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 180   # relaxed from 30: free-tier reasoning lanes (nemotron, nex, auto-router) need ~15min/item x 9 items
     concurrency:
       group: vibe-code-review-${{ github.repository }}-${{ github.event.pull_request.number }}
       cancel-in-progress: true
