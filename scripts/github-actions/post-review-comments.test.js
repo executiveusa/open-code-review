@@ -12,7 +12,7 @@
 
 const assert = require("assert");
 const path = require("path");
-const { runPostReviewComments, safeFence, fencedBlock, lineSpan, sameCommentSpan, overlapsHistory, resolveThreshold, DEFAULT_OVERLAP_THRESHOLD, newCommentId, getPostedCommentIds, computeRetryDelayMs, formatWarnings, resolveBatchSize, sortToSendDeterministically, chunkArray, buildRunTags, DEFAULT_BATCH_SIZE, buildBadge, sanitizeMetadata, buildPolicy, routeComment, formatComment, formatCommentMarkdown, NO_ROUTING, CATEGORIES, SEVERITIES, SEVERITY_RANK } = require(path.join(__dirname, "post-review-comments.js"));
+const { runPostReviewComments, reviewIncompleteReasons, buildHoldNotice, safeFence, fencedBlock, lineSpan, sameCommentSpan, overlapsHistory, resolveThreshold, DEFAULT_OVERLAP_THRESHOLD, newCommentId, getPostedCommentIds, computeRetryDelayMs, formatWarnings, resolveBatchSize, sortToSendDeterministically, chunkArray, buildRunTags, DEFAULT_BATCH_SIZE, buildBadge, sanitizeMetadata, buildPolicy, routeComment, formatComment, formatCommentMarkdown, NO_ROUTING, CATEGORIES, SEVERITIES, SEVERITY_RANK } = require(path.join(__dirname, "post-review-comments.js"));
 
 // REVIEW_TAG as the production code builds it for this test's hardcoded run
 // identity (context.runId=undefined -> 0, runAttempt=undefined -> 1). Used as
@@ -295,11 +295,26 @@ function mockCore() {
     logs,
     setOutput(name, value) { outputs[name] = value; },
     info(message) { logs.push(message); },
+    failures: [],
+    setFailed(message) { this.failures.push(message); },
   };
 }
 
-async function run({ result, stderr = "", opts = {}, githubOpts = {} }) {
-  const resultText = typeof result === "string" ? result : JSON.stringify(result);
+// Existing fixtures model reviews that finished. Real OCR results always carry
+// status/tool_calls/manifest, so fill in a complete, failure-free set unless a
+// test opts out with rawResult (the HOLD tests below do).
+function withCompletionSignals(result) {
+  if (result === null || typeof result !== "object" || Array.isArray(result)) return result;
+  return Object.assign({
+    status: "complete",
+    tool_calls: { total: 0, by_tool: {}, failure: 0, failure_by_tool: {}, failure_details: [] },
+    manifest: { terminal_state: "complete", coverage: { selected: [], completed: [], reused: [], failed: [], waived: [] } },
+  }, result);
+}
+
+async function run({ result, stderr = "", opts = {}, githubOpts = {}, rawResult = false }) {
+  const finalResult = rawResult ? result : withCompletionSignals(result);
+  const resultText = typeof finalResult === "string" ? finalResult : JSON.stringify(finalResult);
   const fs = mockFs(resultText, stderr);
   const github = makeGithub(githubOpts);
   const core = mockCore();
@@ -2051,7 +2066,103 @@ async function testRoutedFindingsCarryNoIdempotencyId() {
   assert.doesNotMatch(body, /ocr-\d+-\d+-[a-f0-9]+/, "routed summary body carries no idempotency id");
 }
 
+// ---- Fail-closed HOLD tests (real OCR 1.11.8 artifacts) ----
+const fs_ = require("fs");
+const loadFixture = (n) => JSON.parse(fs_.readFileSync(path.join(__dirname, "fixtures", n), "utf8"));
+
+function summaryBodies(github) {
+  return (github.updatedComments || []).concat(github.issueComments || []).map((c) => c.body).join("\n=====\n");
+}
+
+async function testRealCleanReviewStaysGreen() {
+  const r = await run({ result: loadFixture("starnet28-clean-result.json"), rawResult: true });
+  assert.deepStrictEqual(reviewIncompleteReasons(loadFixture("starnet28-clean-result.json")), []);
+  assert.strictEqual(r.outputs.review_hold, "false");
+  assert.strictEqual(r.outputs.review_hold_reasons, "");
+  assert.strictEqual(r.core.failures.length, 0);
+}
+
+async function testRealFailedToolCallsHold() {
+  const fixture = loadFixture("starnet52-failedtools-result.json");
+  assert.strictEqual(fixture.status, "complete"); // the label alone is not enough
+  const reasons = reviewIncompleteReasons(fixture);
+  assert.strictEqual(reasons.length, 1);
+  assert.ok(reasons[0].startsWith("4 tool call(s) failed (code_comment=4)"), reasons[0]);
+  assert.ok(reasons[0].includes("'comments' array is required"), reasons[0]);
+  assert.ok(reasons[0].includes("code_comment call #3"), reasons[0]);
+  const r = await run({ result: fixture, rawResult: true });
+  assert.strictEqual(r.outputs.review_hold, "true");
+  assert.ok(r.outputs.review_hold_reasons.includes("4 tool call(s) failed"));
+  assert.strictEqual(r.core.failures.length, 1);
+  assert.ok(r.core.failures[0].includes("'comments' array is required"));
+  const text = summaryBodies(r.github);
+  assert.ok(text.includes("HOLD: review incomplete"), "summary must carry the HOLD notice");
+  assert.ok(!text.includes("✅ **OpenCodeReview**"), "must not post a clean-pass summary");
+}
+
+function testStrictTypingHolds() {
+  const good = () => loadFixture("starnet28-clean-result.json");
+  const mutate = (fn) => { const r = good(); fn(r); return reviewIncompleteReasons(r); };
+  assert.deepStrictEqual(mutate(() => {}), []);
+  const cases = {
+    "missing tool_calls": (r) => { delete r.tool_calls; },
+    "null failure": (r) => { r.tool_calls.failure = null; },
+    "empty-string failure": (r) => { r.tool_calls.failure = ""; },
+    "string failure": (r) => { r.tool_calls.failure = "0"; },
+    "negative failure": (r) => { r.tool_calls.failure = -1; },
+    "fractional failure": (r) => { r.tool_calls.failure = 0.5; },
+    "array tool_calls": (r) => { r.tool_calls = []; },
+    "missing manifest": (r) => { delete r.manifest; },
+    "array manifest": (r) => { r.manifest = []; },
+    "missing terminal_state": (r) => { delete r.manifest.terminal_state; },
+    "partial terminal_state": (r) => { r.manifest.terminal_state = "partial"; },
+    "canceled terminal_state": (r) => { r.manifest.terminal_state = "canceled"; },
+    "missing coverage": (r) => { delete r.manifest.coverage; },
+    "array coverage": (r) => { r.manifest.coverage = []; },
+    "missing coverage.failed": (r) => { delete r.manifest.coverage.failed; },
+    "non-list coverage.failed": (r) => { r.manifest.coverage.failed = 0; },
+    "failed coverage": (r) => { r.manifest.coverage.failed = [{ path: "src/a.js" }]; },
+    "bad status": (r) => { r.status = "error"; },
+    "missing status": (r) => { delete r.status; },
+  };
+  for (const [name, fn] of Object.entries(cases)) {
+    assert.ok(mutate(fn).length > 0, `${name} must HOLD`);
+  }
+  assert.ok(mutate(cases["failed coverage"])[0].includes("src/a.js"));
+  assert.ok(reviewIncompleteReasons([]).length > 0);
+  assert.ok(reviewIncompleteReasons(null).length > 0);
+}
+
+async function testHoldWithFindingsAndUnparseableOutput() {
+  const withFindings = loadFixture("starnet52-failedtools-result.json");
+  withFindings.comments = [{ path: "a.js", content: "x", line: 1, end_line: 1, severity: "high", category: "bug" }];
+  const r = await run({ result: withFindings, rawResult: true });
+  assert.strictEqual(r.outputs.review_hold, "true");
+  assert.strictEqual(r.core.failures.length, 1);
+  assert.ok(summaryBodies(r.github).includes("HOLD: review incomplete"));
+  for (const stderr of ["", "boom"]) {
+    const u = await run({ result: "not json", stderr, rawResult: true });
+    assert.strictEqual(u.outputs.review_hold, "true");
+    assert.strictEqual(u.core.failures.length, 1);
+  }
+}
+
+async function testHoldReasonsAreBounded() {
+  const r = loadFixture("starnet28-clean-result.json");
+  r.tool_calls.failure = 50;
+  r.tool_calls.failure_details = Array.from({ length: 50 }, (_, i) => ({ tool_name: "code_comment", tool_call_number: i, error: "e".repeat(5000) }));
+  const reasons = reviewIncompleteReasons(r);
+  assert.ok(reasons[0].length < 2000, String(reasons[0].length));
+  assert.ok(reasons[0].includes("+45 more"));
+  assert.ok(buildHoldNotice(reasons).includes("must not be read as SHIP"));
+}
+
 async function main() {
+  await testRealCleanReviewStaysGreen();
+  await testRealFailedToolCallsHold();
+  testStrictTypingHolds();
+  await testHoldWithFindingsAndUnparseableOutput();
+  await testHoldReasonsAreBounded();
   await testFailedInlineCommentsAreSummarized();
   await testWarningsListedAfterSummaryComments();
   await testErrorCommentUsesSafeFence();

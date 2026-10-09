@@ -162,6 +162,15 @@ outputs:
   summary_comment_url:
     description: URL of the posted/updated summary comment, if any.
     value: ${{ steps.post.outputs.summary_comment_url }}
+  review_hold:
+    description: >-
+      "true" when the review did not finish cleanly (failed tool calls, a
+      non-complete manifest, failed coverage, or unreadable output). The step
+      is also failed; a held review is never a clean pass.
+    value: ${{ steps.post.outputs.review_hold }}
+  review_hold_reasons:
+    description: Semicolon-separated reasons for the HOLD; empty when review_hold is "false".
+    value: ${{ steps.post.outputs.review_hold_reasons }}
 
 runs:
   using: composite

@@ -1,0 +1,193 @@
+{
+  "status": "complete",
+  "llm": {
+    "model": "nvidia/nemotron-3-super-120b-a12b:free"
+  },
+  "message": "Review complete: 0 finding(s) across 4 selected item(s).",
+  "summary": {
+    "files_reviewed": 4,
+    "comments": 0,
+    "total_tokens": 243536,
+    "input_tokens": 168653,
+    "output_tokens": 74883,
+    "cache_read_tokens": 112112,
+    "elapsed": "12m11s"
+  },
+  "tool_calls": {
+    "total": 9,
+    "by_tool": {
+      "code_comment": 4,
+      "code_search": 2,
+      "file_read": 3
+    },
+    "failure": 4,
+    "failure_by_tool": {
+      "code_comment": 4
+    },
+    "failure_details": [
+      {
+        "tool_call_number": 3,
+        "tool_name": "code_comment",
+        "file_path": "sidecar/jev-question-packs.json,sidecar/jev-shadow-openrouter.js",
+        "arguments": "{\"path\":\"sidecar/jev-shadow-openrouter.js\",\"existing_code\":\"const MODELS = (process.env.JEV_SHADOW_MODELS\\n  || 'stealth/space-bunny-alpha,deepseek/deepseek-v4-flash-0731:free,z-ai/glm-5.2:free,google/gemma-4-31b-it:free'\\n).split(',').map(s =\u003e s.trim()).filter(Boolean);\\n// Per-model request extras. Space Bunny Alpha reasons at length by default;\\n// low effort keeps typed decisions fast. Quality knob lives here, not in prompts.\\nconst MODEL_EXTRA = {\\n  'stealth/space-bunny-alpha': { reasoning_effort: 'low' },\\n};\",\"comment\":\"The OpenRouter API URL is hardcoded in multiple places. Consider making it configurable via environment variable like the gateway URL for better flexibility and to avoid hardcoding business-related strings.\",\"severity\":\"medium\",\"category\":\"maintainability\"}",
+        "error": "Error: 'comments' array is required. Got args: {\"category\":\"maintainability\",\"comment\":\"The OpenRouter API URL is hardcoded in multiple places. Consider making it configurable via environment variable like the gateway URL for better flexibility and to avoid hardcoding business-related strings.\",\"existing_code\":\"const MODELS = (process.env.JEV_SHADOW_MODELS\\n  || 'stealth/space-bunny-alpha,deepseek/deepseek-v4-flash-0731:free,z-ai/glm-5.2:free,google/gemma-4-31b-it:free'\\n).split(',').map(s =\\u003e s.trim()).filter(Boolean);\\n// Per-model request extras. Space Bunny Alpha reasons at length by default;\\n// low effort keeps typed decisions fast. Quality knob lives here, not in prompts.\\nconst MODEL_EXTRA = {\\n  'stealth/space-bunny-alpha': { reasoning_effort: 'low' },\\n};\",\"path\":\"sidecar/jev-shadow-openrouter.js\",\"severity\":\"medium\"}"
+      },
+      {
+        "tool_call_number": 4,
+        "tool_name": "code_comment",
+        "file_path": "sidecar/jev-question-packs.json,sidecar/jev-shadow-openrouter.js",
+        "arguments": "{\"path\":\"sidecar/jev-shadow-openrouter.js\",\"existing_code\":\"const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {\\n          signal: AbortSignal.timeout(25000),\\n          method: 'POST',\\n          headers: {\\n            authorization: 'Bearer ' + API_KEY,\\n            'content-type': 'application/json',\\n            accept: 'application/json',\\n          },\\n          body: JSON.stringify({\\n            model,\\n            messages: [\\n              { role: 'system', content: spec },\\n              { role: 'user', content: user },\\n            ],\\n            temperature: 0,\\n            max_tokens: 400,\\n            response_format: { type: 'json_object' },\\n            ...(MODEL_EXTRA[model] || {}),\\n          }),\\n        });\",\"comment\":\"The OpenRouter API URL is hardcoded in this newly added function. This violates the prohibition on business-related hardcoded strings. Consider extracting the URL to a constant or environment variable (e.g., OPENROUTER_API_URL) to match the pattern used for the gateway URL and improve maintainability.\",\"severity\":\"medium\",\"category\":\"maintainability\"}",
+        "error": "Error: 'comments' array is required. Got args: {\"category\":\"maintainability\",\"comment\":\"The OpenRouter API URL is hardcoded in this newly added function. This violates the prohibition on business-related hardcoded strings. Consider extracting the URL to a constant or environment variable (e.g., OPENROUTER_API_URL) to match the pattern used for the gateway URL and improve maintainability.\",\"existing_code\":\"const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {\\n          signal: AbortSignal.timeout(25000),\\n          method: 'POST',\\n          headers: {\\n            authorization: 'Bearer ' + API_KEY,\\n            'content-type': 'application/json',\\n            accept: 'application/json',\\n          },\\n          body: JSON.stringify({\\n            model,\\n            messages: [\\n              { role: 'system', content: spec },\\n              { role: 'user', content: user },\\n            ],\\n            temperature: 0,\\n            max_tokens: 400,\\n            response_format: { type: 'json_object' },\\n            ...(MODEL_EXTRA[model] || {}),\\n          }),\\n        });\",\"path\":\"sidecar/jev-shadow-openrouter.js\",\"severity\":\"medium\"}"
+      },
+      {
+        "tool_call_number": 5,
+        "tool_name": "code_comment",
+        "file_path": "sidecar/jev-question-packs.json,sidecar/jev-shadow-openrouter.js",
+        "arguments": "{\"path\":\"sidecar/jev-shadow-openrouter.js\",\"existing_code\":\"async function callModelCustom(state, questions) {\\n  const spec = customSpecFromQuestions(questions);\\n  const user = 'State:\\\\n' + JSON.stringify(state).slice(0, 6000);\\n  let lastErr = null;\\n  for (const model of MODELS) {\\n    const started = Date.now();\\n    try {\\n      const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {\\n        signal: AbortSignal.timeout(25000),\\n        method: 'POST',\\n        headers: {\\n          authorization: 'Bearer ' + API_KEY,\\n          'content-type': 'application/json',\\n          accept: 'application/json',\\n        },\\n        body: JSON.stringify({\\n          model,\\n          messages: [\\n            { role: 'system', content: spec },\\n            { role: 'user', content: user },\\n          ],\\n          temperature: 0,\\n          max_tokens: 400,\\n          response_format: { type: 'json_object' },\\n          ...(MODEL_EXTRA[model] || {}),\\n        }),\\n      });\",\"comment\":\"The OpenRouter API URL is hardcoded in this newly added function. This violates the prohibition on business-related hardcoded strings. Consider extracting the URL to a constant or environment variable (e.g., OPENROUTER_API_URL) to match the pattern used for the gateway URL and improve maintainability.\",\"severity\":\"medium\",\"category\":\"maintainability\"}",
+        "error": "Error: 'comments' array is required. Got args: {\"category\":\"maintainability\",\"comment\":\"The OpenRouter API URL is hardcoded in this newly added function. This violates the prohibition on business-related hardcoded strings. Consider extracting the URL to a constant or environment variable (e.g., OPENROUTER_API_URL) to match the pattern used for the gateway URL and improve maintainability.\",\"existing_code\":\"async function callModelCustom(state, questions) {\\n  const spec = customSpecFromQuestions(questions);\\n  const user = 'State:\\\\n' + JSON.stringify(state).slice(0, 6000);\\n  let lastErr = null;\\n  for (const model of MODELS) {\\n    const started = Date.now();\\n    try {\\n      const resp = await fetch('https://openrouter.ai/api/v1/chat/completions', {\\n        signal: AbortSignal.timeout(25000),\\n        method: 'POST',\\n        headers: {\\n          authorization: 'Bearer ' + API_KEY,\\n          'content-type': 'application/json',\\n          accept: 'application/json',\\n        },\\n        body: JSON.stringify({\\n          model,\\n          messages: [\\n            { role: 'system', content: spec },\\n            { role: 'user', content: user },\\n          ],\\n          temperature: 0,\\n          max_tokens: 400,\\n          response_format: { type: 'json_object' },\\n          ...(MODEL_EXTRA[model] || {}),\\n        }),\\n      });\",\"path\":\"sidecar/jev-shadow-openrouter.js\",\"severity\":\"medium\"}"
+      },
+      {
+        "tool_call_number": 8,
+        "tool_name": "code_comment",
+        "file_path": "sidecar/jev-question-packs.json,sidecar/jev-shadow-openrouter.js",
+        "arguments": "{\"path\":\"sidecar/jev-shadow-openrouter.js\",\"existing_code\":\"function clip(v, n) { return String(v == null ? '' : v).slice(0, n); }\",\"comment\":\"Using == is prohibited; use strict equality === and !==. Change v == null to v === null || v === undefined for null/undefined check.\",\"severity\":\"medium\",\"category\":\"maintainability\"}",
+        "error": "Error: 'comments' array is required. Got args: {\"category\":\"maintainability\",\"comment\":\"Using == is prohibited; use strict equality === and !==. Change v == null to v === null || v === undefined for null/undefined check.\",\"existing_code\":\"function clip(v, n) { return String(v == null ? '' : v).slice(0, n); }\",\"path\":\"sidecar/jev-shadow-openrouter.js\",\"severity\":\"medium\"}"
+      }
+    ]
+  },
+  "comments": [],
+  "groups": [
+    {
+      "label": "Sidecar JEV question packs and shadow openrouter integration",
+      "files": [
+        "sidecar/jev-question-packs.json",
+        "sidecar/jev-shadow-openrouter.js"
+      ]
+    },
+    {
+      "label": "JEV district citizens configuration",
+      "files": [
+        "districts/jev/citizens.yaml"
+      ]
+    },
+    {
+      "label": "Global gitleaks ignore configuration",
+      "files": [
+        ".gitleaksignore"
+      ]
+    }
+  ],
+  "session_id": "615fe13e-77a5-4862-aa63-df83d5cf9510",
+  "manifest": {
+    "schema_version": "ocr.run-manifest/v1",
+    "run_id": "615fe13e-77a5-4862-aa63-df83d5cf9510",
+    "operation": "review",
+    "terminal_state": "complete",
+    "repository": {
+      "identity_sha256": "3ca72f67459f93853eecc4465660f41e8bbd10ffb997350e07dc850baceb970f"
+    },
+    "input": {
+      "mode": "range",
+      "requested_from": "f0520dac009056803d3a359fe5a1770e851ea980",
+      "requested_head": "4d68d548efce51e3bac4681355c15b5b29fe3c75",
+      "resolved_base": "f0520dac009056803d3a359fe5a1770e851ea980",
+      "resolved_head": "4d68d548efce51e3bac4681355c15b5b29fe3c75",
+      "exact_range": "f0520dac009056803d3a359fe5a1770e851ea980..4d68d548efce51e3bac4681355c15b5b29fe3c75",
+      "source_artifact_sha256": "5c0e56616d1d81acf87267032f3bd568de1e31ce21e0204c4a40438eadd2894c"
+    },
+    "execution": {
+      "ocr_version": "v1.11.8",
+      "model": "nvidia/nemotron-3-super-120b-a12b:free",
+      "configured_concurrency": 1,
+      "rule_config_sha256": "36d13febbfee2b3fdaca7db454ed782dfe96262701a5bf6df7fcb368f92e38d8",
+      "runtime_config_sha256": "7d23d98f7c8830c56e69008e9ab40eebff4d92ca60fe1664bc9851c338237360"
+    },
+    "coverage": {
+      "selected": [
+        {
+          "item_id": "4d8e18d2135e9c16f266c5f70cc3f709830307f2eac65959bb57c316502f6515",
+          "path": "sidecar/jev-question-packs.json",
+          "fingerprint": "38ca92e15e2b0114b09f8585f2e3948f265802e88ab4fa17a3d06e98eb115965"
+        },
+        {
+          "item_id": "8b3508dc7e0312438a6cf464c0762350e1113cb49cba0a1a6f089383a3fcd4e8",
+          "path": "districts/jev/citizens.yaml",
+          "fingerprint": "b63f485a4c14b002e7da35c94cb095512d909128988d8d35c1c784594ea6644b"
+        },
+        {
+          "item_id": "d6d205b950aad87e8f93bd14465f481054492c49029c232d70e81e87b1c1f4b8",
+          "path": "sidecar/jev-shadow-openrouter.js",
+          "fingerprint": "e0e09235c01c29eddfeaab5ec370accff4d1ac9e166f500bd01504cd0ecec9a2"
+        },
+        {
+          "item_id": "d9c5a157e1ef1ca4d397d0e140b79971b2463e6d4e63dc3868424dbf3361a324",
+          "path": ".gitleaksignore",
+          "fingerprint": "4a6716d5c401148d517a8ce95dee91aae2fefa6cfd3a1bbfdb584989b2b8285c"
+        }
+      ],
+      "completed": [
+        {
+          "item_id": "4d8e18d2135e9c16f266c5f70cc3f709830307f2eac65959bb57c316502f6515",
+          "path": "sidecar/jev-question-packs.json",
+          "fingerprint": "38ca92e15e2b0114b09f8585f2e3948f265802e88ab4fa17a3d06e98eb115965"
+        },
+        {
+          "item_id": "8b3508dc7e0312438a6cf464c0762350e1113cb49cba0a1a6f089383a3fcd4e8",
+          "path": "districts/jev/citizens.yaml",
+          "fingerprint": "b63f485a4c14b002e7da35c94cb095512d909128988d8d35c1c784594ea6644b"
+        },
+        {
+          "item_id": "d6d205b950aad87e8f93bd14465f481054492c49029c232d70e81e87b1c1f4b8",
+          "path": "sidecar/jev-shadow-openrouter.js",
+          "fingerprint": "e0e09235c01c29eddfeaab5ec370accff4d1ac9e166f500bd01504cd0ecec9a2"
+        },
+        {
+          "item_id": "d9c5a157e1ef1ca4d397d0e140b79971b2463e6d4e63dc3868424dbf3361a324",
+          "path": ".gitleaksignore",
+          "fingerprint": "4a6716d5c401148d517a8ce95dee91aae2fefa6cfd3a1bbfdb584989b2b8285c"
+        }
+      ],
+      "reused": [],
+      "failed": [],
+      "waived": []
+    },
+    "elapsed_ms": 730845
+  },
+  "retry_report": {
+    "schema_version": "ocr.llm-retry-report/v1",
+    "total_requests": 15,
+    "retried_requests": 1,
+    "total_retries": 1,
+    "recovered_requests": 1,
+    "failed_requests": 0,
+    "cancelled_requests": 0,
+    "requests": [
+      {
+        "logical_request_id": "b9ec7a614b634d8f3ebbc429972c59928c0a80d840f563318d6acf70b252ddba",
+        "provider": "",
+        "model": "nvidia/nemotron-3-super-120b-a12b:free",
+        "file_path": "sidecar/jev-question-packs.json,sidecar/jev-shadow-openrouter.js",
+        "task_type": "main_task",
+        "request_no": 8,
+        "outcome": "recovered",
+        "attempts": [
+          {
+            "attempt": 1,
+            "outcome": "error",
+            "error_class": "provider",
+            "failure_phase": "http",
+            "status_code": 520,
+            "duration_to_headers_ms": 40116
+          },
+          {
+            "attempt": 2,
+            "outcome": "success",
+            "status_code": 200,
+            "observed_backoff_ms": 473,
+            "duration_to_headers_ms": 569
+          }
+        ]
+      }
+    ]
+  }
+}

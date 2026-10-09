@@ -63,6 +63,84 @@ const SEVERITY_RANK = new Map(
 // Equivalently produced by an empty policy (no threshold, no categories).
 const NO_ROUTING = Object.freeze({ routeBySeverity: false, routeByCategory: false });
 
+// ---- Fail-closed completeness gate ----
+// A review that did not finish, or whose tool calls failed, must never read as
+// a clean pass. The OCR result JSON reports this in tool_calls.failure and the
+// run manifest (terminal_state, coverage.failed). Anything missing, mistyped or
+// unfinished yields a HOLD reason. Healthy 1.11.8 results carry
+// status "complete", tool_calls.failure 0, manifest.terminal_state "complete"
+// and coverage.failed []; the status label alone never distinguishes a good run
+// from one with failed tool calls.
+const HEALTHY_STATUSES = new Set(["complete", "success"]);
+const MAX_HOLD_DETAILS = 5;
+
+function isPlainObject(v) {
+  return v !== null && typeof v === "object" && !Array.isArray(v);
+}
+
+function isCount(v) {
+  return typeof v === "number" && Number.isInteger(v) && v >= 0;
+}
+
+function clipText(v, n) {
+  const t = String(v == null ? "" : v).replace(/\s+/g, " ").trim();
+  return t.length > n ? t.slice(0, n) + "…" : t;
+}
+
+function reviewIncompleteReasons(result) {
+  if (!isPlainObject(result)) return ["OCR output is not a JSON object"];
+  const reasons = [];
+
+  if (!HEALTHY_STATUSES.has(result.status)) {
+    reasons.push(`status is ${JSON.stringify(result.status === undefined ? null : result.status)}, not "complete"`);
+  }
+
+  const tc = result.tool_calls;
+  if (!isPlainObject(tc)) {
+    reasons.push("tool_calls is missing or malformed; tool failures cannot be ruled out");
+  } else if (!isCount(tc.failure)) {
+    reasons.push(`tool_calls.failure is ${JSON.stringify(tc.failure === undefined ? null : tc.failure)}, not a non-negative integer`);
+  } else if (tc.failure > 0) {
+    const details = Array.isArray(tc.failure_details) ? tc.failure_details : [];
+    const named = details.slice(0, MAX_HOLD_DETAILS).map((d) => {
+      const o = isPlainObject(d) ? d : {};
+      return `${clipText(o.tool_name || "unknown tool", 40)} call #${o.tool_call_number == null ? "?" : clipText(o.tool_call_number, 10)}: ${clipText(o.error || "no error text", 160)}`;
+    });
+    let line = `${tc.failure} tool call(s) failed`;
+    if (isPlainObject(tc.failure_by_tool)) {
+      const by = Object.entries(tc.failure_by_tool).slice(0, 10).map(([k, v]) => `${clipText(k, 40)}=${clipText(v, 10)}`).join(", ");
+      if (by) line += ` (${by})`;
+    }
+    if (named.length) line += `: ${named.join(" | ")}`;
+    if (details.length > named.length) line += ` | +${details.length - named.length} more`;
+    reasons.push(line);
+  }
+
+  const m = result.manifest;
+  if (!isPlainObject(m)) {
+    reasons.push("run manifest is missing or malformed; completeness cannot be confirmed");
+  } else {
+    if (m.terminal_state !== "complete") {
+      reasons.push(`manifest.terminal_state is ${JSON.stringify(m.terminal_state === undefined ? null : m.terminal_state)}, not "complete"`);
+    }
+    const cov = m.coverage;
+    if (!isPlainObject(cov)) {
+      reasons.push("manifest.coverage is missing or malformed");
+    } else if (!Array.isArray(cov.failed)) {
+      reasons.push("manifest.coverage.failed is missing or not a list");
+    } else if (cov.failed.length > 0) {
+      const files = cov.failed.slice(0, MAX_HOLD_DETAILS).map((f) => clipText(isPlainObject(f) ? (f.path || f.item_id || "unknown item") : f, 80));
+      reasons.push(`${cov.failed.length} reviewed item(s) failed: ${files.join(", ")}${cov.failed.length > files.length ? ` | +${cov.failed.length - files.length} more` : ""}`);
+    }
+  }
+  return reasons;
+}
+
+function buildHoldNotice(reasons) {
+  const list = reasons.map((r) => `- ${r}`).join("\n");
+  return `🛑 **HOLD: review incomplete.** This is not a clean pass and must not be read as SHIP.\n${list}`;
+}
+
 async function runPostReviewComments({
   github,
   context,
@@ -110,6 +188,14 @@ async function runPostReviewComments({
     failed: 0,
     routed: 0,
     summaryUrl: "",
+    holdReasons: [],
+  };
+  const markHold = (reasons) => {
+    stats.holdReasons = reasons;
+    log(`[hold] ${reasons.join("; ")}`);
+    if (core && typeof core.setFailed === "function") {
+      core.setFailed(`OpenCodeReview HOLD: ${reasons.join("; ")}`);
+    }
   };
 
   // Read OCR output.
@@ -120,8 +206,10 @@ async function runPostReviewComments({
   } catch (e) {
     log(`Failed to parse OCR output: ${e.message}`);
     const stderr = safeRead(fs, stderrPath).trim();
-    if (stderr) {
-      const body = `${SUMMARY_MARKER}\n⚠️ **OpenCodeReview** encountered an error:\n${fencedBlock(stderr)}`;
+    markHold([`OCR output could not be read or parsed: ${clipText(e.message, 160)}`]);
+    {
+      let body = `${SUMMARY_MARKER}\n${buildHoldNotice(stats.holdReasons)}`;
+      if (stderr) body += `\n\n⚠️ **OpenCodeReview** encountered an error:\n${fencedBlock(stderr)}`;
       const posted = await postSummary({ github, owner, repo, prNumber, body, sticky: stickySummary, log });
       stats.summaryUrl = posted.url;
     }
@@ -129,14 +217,21 @@ async function runPostReviewComments({
     return;
   }
 
-  const comments = result.comments || [];
-  const warnings = result.warnings || [];
+  const holdReasons = reviewIncompleteReasons(result);
+  if (holdReasons.length > 0) markHold(holdReasons);
+  const holdNotice = holdReasons.length > 0 ? buildHoldNotice(holdReasons) : "";
+  const holdPrefix = holdNotice ? `${holdNotice}\n\n` : "";
+  const resultObj = isPlainObject(result) ? result : {};
+  const comments = Array.isArray(resultObj.comments) ? resultObj.comments : [];
+  const warnings = Array.isArray(resultObj.warnings) ? resultObj.warnings : [];
   stats.total = comments.length;
 
   // No comments: post a "looks good" summary.
   if (comments.length === 0) {
-    const message = result.message || "No comments generated. Looks good to me.";
-    const body = `${SUMMARY_MARKER}\n✅ **OpenCodeReview**: ${message}`;
+    const message = resultObj.message || "No comments generated. Looks good to me.";
+    const body = holdNotice
+      ? `${SUMMARY_MARKER}\n${holdNotice}\n\nNo findings were recorded, but the review did not finish cleanly.`
+      : `${SUMMARY_MARKER}\n✅ **OpenCodeReview**: ${message}`;
     const posted = await postSummary({ github, owner, repo, prNumber, body, sticky: stickySummary, log });
     stats.summaryUrl = posted.url;
     setStatsOutputs(out, stats);
@@ -240,7 +335,7 @@ async function runPostReviewComments({
     sticky: stickySummary,
     tag: SUMMARY_TAG,
     body: wrapSummary(
-      buildPreReviewSummaryBody(stats.total, commentsWithoutLine, commentsRouted, warnings)
+      holdPrefix + buildPreReviewSummaryBody(stats.total, commentsWithoutLine, commentsRouted, warnings)
     ),
     log,
   });
@@ -302,7 +397,7 @@ async function runPostReviewComments({
   // reason it ended up in the summary (so the reader always knows why it is
   // here). Routed findings render BEFORE the failed block so the order is:
   // counts → no-line summary → routed summary → failed.
-  let summaryBody = buildSummaryBody({
+  let summaryBody = holdPrefix + buildSummaryBody({
     total: stats.total,
     inline: successCount,
     summary: commentsWithoutLine.length,
@@ -666,6 +761,9 @@ function setStatsOutputs(out, stats, batchCounters, batchSize) {
   out("comments_routed", String(stats.routed));
   out("comments_failed", String(stats.failed));
   out("summary_comment_url", stats.summaryUrl || "");
+  const hold = Array.isArray(stats.holdReasons) ? stats.holdReasons : [];
+  out("review_hold", hold.length > 0 ? "true" : "false");
+  out("review_hold_reasons", hold.join("; "));
   // Per-batch telemetry (B7). These are additional outputs; the five above are
   // unchanged so existing consumers of comments_* / summary_comment_url are
   // unaffected. batch_summary is a single JSON string so a fleet dashboard can
@@ -1531,6 +1629,8 @@ function safeRead(fs, p) {
 
 module.exports = {
   runPostReviewComments,
+  reviewIncompleteReasons,
+  buildHoldNotice,
   postSummary,
   findExistingSummaryComment,
   findSummaryIssueComment,
