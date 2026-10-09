@@ -48,7 +48,7 @@ jobs:
     steps:
       - name: Review pull request
         id: review
-        uses: executiveusa/open-code-review@main
+        uses: executiveusa/open-code-review@310008fc2d088d52d2f683485e4eb0a24a796e95
         with:
           llm_url: https://models.github.ai/inference/chat/completions
           llm_auth_token: ${{ github.token }}
